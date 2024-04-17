@@ -35,8 +35,6 @@ This project is licensed under the MIT License.
 
 ## Contact
 
-## Contact
-
 If you have any questions or feedback, feel free to reach out to us:
 
 - Discord: [JustForDev](https://discord.gg/nstjC2NBPf)
