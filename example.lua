@@ -1,64 +1,79 @@
+--- Showcase of the Promise API. Mirrors what you can do with a JavaScript
+--- Promise, plus the coroutine-based `:Await()` / `async` / `await` sugar.
+
 require "promise.class.lua"; -- Implement your own require path
 
----@param callbackFn fun(count: number)
-local function my_count(callbackFn)
+--- A fake async job: counts to `target`, then calls back. Half the time it
+--- "fails" to demonstrate rejection paths.
+---@param target integer
+---@param callback fun(ok: boolean, count: integer)
+local function count_async(target, callback)
     local count = 0;
-    while (count < 10) do
+    while (count < target) do
         count = count + 1;
     end
-    callbackFn(count);
+    callback(math.random(1, 2) == 1, count);
 end
 
-local function count_method_1()
-    local promise = Promise();
-    my_count(function(count)
-        promise:Resolve(count);
-    end);
-    return promise:Await();
-end
-
-local function count_method_2()
+--- 1. Executor style — wrap a callback API into a promise.
+---@return Promise
+local function count(target)
     return Promise(function(resolve, reject)
-        my_count(function(count)
-            resolve(count);
+        count_async(target, function(ok, value)
+            if (ok) then
+                resolve(value);
+            else
+                reject(("count(%d) failed"):format(target));
+            end
         end);
     end);
 end
 
-local function count_method_3()
-    local promise = Promise();
-    my_count(function(count)
-        promise:Resolve(count);
-    end);
+--- 2. Deferred style — get a handle now, settle it later.
+---@return Promise
+local function count_deferred(target)
+    local promise <const> = Promise();
+    count_async(target, function(_, value) promise:Resolve(value); end);
     return promise;
 end
 
-local function count_method_4()
-    local promise = Promise();
-    my_count(function(count)
-        local random_error = math.random(1, 2);
-        if (random_error == 1) then
-            promise:Reject("Random error");
-            return;
+-- Chaining: each :Then receives the previous return value.
+count(10)
+    :Then(function(value) return value * 2; end)
+    :Then(function(doubled) print(("chained result: %d"):format(doubled)); end)
+    :Catch(function(reason) print(("chain failed: %s"):format(reason)); end)
+    :Finally(function() print("chain settled"); end);
+
+-- Combinators, JavaScript-style.
+Promise.all({ count(5), count(10), count_deferred(15) })
+    :Then(function(values) print(("all done: %d/%d/%d"):format(values[1], values[2], values[3])); end)
+    :Catch(function(reason) print(("one of them failed: %s"):format(reason)); end);
+
+Promise.allSettled({ count(5), count(10) })
+    :Then(function(results)
+        for i, r in ipairs(results) do
+            print(("[%d] %s -> %s"):format(i, r.status, tostring(r.value or r.reason)));
         end
-        promise:Resolve(count);
     end);
-    return promise;
-end
 
+Promise.race({ count(5), count(50) })
+    :Then(function(winner) print(("race winner: %d"):format(winner)); end);
+
+-- Sequential async/await flow inside a coroutine. `async` itself returns a
+-- promise resolving to the function's return value.
 async(function()
-    local my_method_one_number = count_method_1();
-    print(("My method 1 number is %s"):format(my_method_one_number));
-    local my_method_two_number = await(count_method_2());
-    print(("My method 2 number is %s"):format(my_method_two_number));
-    local my_method_three_number = await(count_method_3());
-    print(("My method 3 number is %s"):format(my_method_three_number));
-    count_method_4():Then(function(count)
-        print(("My method 4 number is %s"):format(count));
-    end, function(reason)
-        print(("My method 4 failed with reason: %s"):format(reason));
-    end);
-    count_method_4():Catch(function(reason)
-        print(("My method 4 failed with reason: %s"):format(reason));
-    end);
+    local a <const> = count(5):Await();
+    local b <const> = await(count_deferred(10)); -- global await works on any thenable
+    return a + b;
+end)
+    :Then(function(total) print(("async total: %d"):format(total)); end)
+    :Catch(function(reason) print(("async failed: %s"):format(reason)); end);
+
+-- Timers (require a scheduler installed via Promise.SetTimer).
+async(function()
+    Promise.delay(1000):Await();
+    print("one second later");
 end);
+
+count(100):Timeout(2000, "took too long")
+    :Catch(function(reason) print(("timed out: %s"):format(reason)); end);
