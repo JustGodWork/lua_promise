@@ -134,7 +134,10 @@ function Promise:Then(on_fulfilled, on_rejected)
 
     return Promise(function(resolve, reject)
         local function handle(state, value)
-            local handler <const> = (state == FULFILLED) and on_fulfilled or on_rejected;
+            local handler = on_rejected;
+            if (state == FULFILLED) then
+                handler = on_fulfilled;
+            end
             if (type(handler) ~= "function") then
                 if (state == FULFILLED) then
                     resolve(value);
